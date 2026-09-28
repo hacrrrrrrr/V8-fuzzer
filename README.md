@@ -1,3 +1,6 @@
+> **Sponsorship / Research Support:** **hunterkritik@gmail.com**  
+> Hardware, fuzzing infrastructure, research collaboration, and project sponsorship inquiries are welcome.
+
 # V8 Fuzzer — Lightweight, Fuzzilli-Inspired d8 Fuzzing
 
 **A small-footprint V8 JavaScript engine fuzzer for authorized local security research.**
@@ -5,6 +8,15 @@
 > Built for practical fuzzing on ordinary hardware, including laptops with around **2 GB RAM**.
 
 This project uses ideas common to modern JavaScript fuzzers: corpus-based generation, mutation, program diversity, crash isolation, and continuous testcase execution. It is **not a reimplementation of Fuzzilli** and currently does not provide engine coverage feedback.
+
+## Latest updates — September 2026
+
+- Added a professional seed/corpus taxonomy for boundaries, memory, JIT, runtime, and Intl paths.
+- Added dedicated bug-pattern seeds for bounds, representation transitions, shape/prototype changes, GC/lifetime pressure, callback re-entry, and ECMA-402.
+- Added Persian-calendar and other Intl date-formatting seeds.
+- Fixed the generator integration so specialized seeds are actually executed instead of merely being stored.
+- Preserved the 2-GB profile: one worker by default on low-memory systems, bounded corpus, isolated d8 process, and per-testcase timeout.
+- Expanded crash triage documentation for sanitizer failures, CHECK/DCHECK/FATAL, SIGSEGV, SIGABRT, and related native failures.
 
 ## What changed
 
@@ -254,6 +266,11 @@ V8-fuzzer/
 ## Responsible use
 
 Run this project only against V8 builds and environments you are authorized to test. Do not use it to attack third-party services or systems.
+
+## Sponsorship
+
+**Contact:** hunterkritik@gmail.com  
+See `SPONSORSHIP.md` for sponsorship, hardware-support, and collaboration information.
 
 ## Author
 
