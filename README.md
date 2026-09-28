@@ -346,3 +346,20 @@ At the moment, the repository uses heuristic corpus retention rather than claimi
 Fuzzilli is a mature coverage-guided JavaScript fuzzer with a substantially richer program representation, mutation system, engine integration and feedback infrastructure. This repository now follows similar **architectural ideas** while remaining a small Python/d8 implementation that can operate on a low-memory laptop.
 
 The goal is compatibility of the workflow, not copying Fuzzilli's implementation.
+
+
+## Intl / Persian-calendar fuzzing
+
+The generator now includes ECMA-402 date/time paths using the Persian calendar, including:
+
+- `fa-IR-u-ca-persian`
+- `calendar: "persian"`
+- `numberingSystem: "arabext"`
+- `Intl.DateTimeFormat.prototype.format`
+- `formatRange`
+- `resolvedOptions()`
+- date values spanning epoch, negative timestamps, large timestamps, and year-2038-adjacent values
+
+This is intended to exercise V8's JavaScript-to-ICU/ECMA-402 boundary and date/calendar option handling.
+
+A calendar-related crash is **not automatically a UAF**. The fuzzer records native crash diagnostics; a suspected use-after-free should be confirmed with an ASan/UBSan build and a minimized reproducer. The fuzzer does not assume a vulnerability class from the symptom alone.
