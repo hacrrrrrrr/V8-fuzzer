@@ -16,12 +16,33 @@ from pathlib import Path
 from typing import Tuple
 
 D8_PATH = "./d8"
-WORKERS = max(1, os.cpu_count() or 1)
+def available_ram_mb():
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) // 1024
+    except (OSError, ValueError):
+        pass
+    return 2048
+
+def default_workers():
+    ram = available_ram_mb()
+    cpu = os.cpu_count() or 1
+    if ram <= 3072:
+        return 1
+    if ram <= 6144:
+        return min(2, cpu)
+    return min(max(1, cpu // 2), 4)
+
+WORKERS = max(1, int(os.environ.get("V8_FUZZ_WORKERS", default_workers())))
 TIMEOUT_SECONDS = 5.0
 ITERATIONS_PER_WORKER = 0
 CRASH_DIR = Path("crashes")
-WARMUP_ITERS = 2200
-MAX_CASE_BYTES = 64 * 1024
+WARMUP_ITERS = int(os.environ.get("V8_FUZZ_WARMUP", "600"))
+MAX_CASE_BYTES = 48 * 1024
+MAX_CORPUS = 256
+SEED_DIR = Path(os.environ.get("V8_FUZZ_SEED_DIR", "seeds"))
+CORPUS_DIR = Path(os.environ.get("V8_FUZZ_CORPUS_DIR", "corpus"))
 
 D8_FLAGS = (
     "--fuzzing",
@@ -143,7 +164,7 @@ const trigger = {{
 }};
 '''
 
-def make_case(rng: random.Random, case_id: int) -> str:
+def make_case(rng: random.Random, case_id: int, base: str | None = None) -> str:
     seed = rng.getrandbits(32)
     target = rng.choice(TARGETS)
     primitive = rng.choice(PRIMITIVES)
@@ -183,6 +204,12 @@ s = null;
 gcBurst();
 ''',
     ))
+
+    mutation = ""
+    if base and rng.random() < 0.65:
+        mutation = base[:MAX_CASE_BYTES // 2]
+        mutation = mutation.replace("0xffffffff", rng.choice(PRIMITIVES), 1)
+        mutation += "\n// corpus mutation boundary\n"
 
     source = f'''// V8 structural fuzz case: seed=0x{seed:08x}, id={case_id}
 {HEADER}
@@ -263,7 +290,28 @@ def save_crash(source: str, diagnostics: str, worker_id: int) -> Path:
     path.write_text(source + comment, encoding="utf-8")
     return path
 
-def worker(worker_id: int, stop: mp.Event) -> int:
+def load_corpus():
+    corpus = []
+    for directory in (SEED_DIR, CORPUS_DIR):
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.js"))[:MAX_CORPUS]:
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+                if text and len(text.encode()) <= MAX_CASE_BYTES:
+                    corpus.append(text)
+            except OSError:
+                pass
+    return corpus[-MAX_CORPUS:]
+
+def save_corpus(source: str):
+    CORPUS_DIR.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(source.encode()).hexdigest()[:16]
+    path = CORPUS_DIR / f"interesting-{digest}.js"
+    if not path.exists():
+        path.write_text(source, encoding="utf-8")
+
+def worker(worker_id: int, stop: mp.Event, initial_corpus) -> int:
     seed = (time.time_ns() ^ (os.getpid() << 17) ^
             (worker_id * 0x9E3779B97F4A7C15)) & ((1 << 64) - 1)
     rng = random.Random(seed)
@@ -273,7 +321,7 @@ def worker(worker_id: int, stop: mp.Event) -> int:
         if ITERATIONS_PER_WORKER and count >= ITERATIONS_PER_WORKER:
             break
 
-        case = make_case(rng, count)
+        base = rng.choice(corpus) if corpus and rng.random() < 0.75 else None\n        case = make_case(rng, count, base)
         print(f"[worker {worker_id}] starting case {count}", flush=True)
         crashed, diagnostics, returncode, timed_out = run_case(case)
         count += 1
@@ -288,7 +336,13 @@ def worker(worker_id: int, stop: mp.Event) -> int:
             path = save_crash(case, diagnostics, worker_id)
             print(f"[worker {worker_id}] CRASH #{crashes}: {path} "
                   f"(returncode={returncode})", flush=True)
-        elif count % 100 == 0:
+        elif len(corpus) < MAX_CORPUS or rng.random() < 0.02:
+            corpus.append(case)
+            if len(corpus) > MAX_CORPUS:
+                corpus.pop(0)
+                save_corpus(case)
+
+        if count % 100 == 0:
             print(f"[worker {worker_id}] cases={count} crashes={crashes} "
                   f"timeouts={timeouts}", flush=True)
 
@@ -314,12 +368,12 @@ def main() -> int:
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    print(f"[+] V8 d8 fuzzer: workers={WORKERS}, timeout={TIMEOUT_SECONDS}s", flush=True)
+    print(f"[+] V8 d8 fuzzer: workers={WORKERS}, timeout={TIMEOUT_SECONDS}s, RAM~{available_ram_mb()}MB", flush=True)\n    print(f"[+] corpus={len(initial_corpus)} target={D8_PATH}", flush=True)
     print(f"[+] target: {D8_PATH}", flush=True)
     print("[+] progress: each worker reports every completed testcase/timeout", flush=True)
 
     for worker_id in range(WORKERS):
-        p = mp.Process(target=worker, args=(worker_id, stop), daemon=False)
+        p = mp.Process(target=worker, args=(worker_id, stop, initial_corpus), daemon=False)
         p.start()
         processes.append(p)
 
