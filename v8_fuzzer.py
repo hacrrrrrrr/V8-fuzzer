@@ -24,8 +24,9 @@ WARMUP_ITERS = 2200
 MAX_CASE_BYTES = 64 * 1024
 
 D8_FLAGS = (
-    "--fuzzing", "--expose-gc", "--trace-gc",
-    "--stress-compaction", "--stress-compaction-random", "--predictable",
+    "--fuzzing",
+    "--expose-gc",
+    "--allow-natives-syntax",
 )
 
 CRASH_MARKERS = (
