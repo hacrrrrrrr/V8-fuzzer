@@ -262,7 +262,7 @@ V8 security research and browser-engine fuzzing.
 This repository is distributed under the license included in
 [`LICENSE`](LICENSE).
 
-Copyright © Kritik Bhattarai.
+Copyright 2026 © Kritik Bhattarai.
 
 ---
 
