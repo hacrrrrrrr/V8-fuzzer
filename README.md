@@ -381,3 +381,54 @@ The generator now has dedicated seed families for:
 
 These are **bug-class-oriented fuzzing patterns**, not claims that the resulting testcase is a vulnerability. In particular, CHECK/DCHECK/FATAL/SEGV/ABRT output is collected as a crash signal and must be independently reproduced and root-caused.
 
+
+
+## Professional project structure
+
+```text
+V8-fuzzer/
+├── docs/
+│   ├── ARCHITECTURE.md
+│   └── CRASH_TRIAGE.md
+├── corpus/
+│   └── README.md
+├── seeds/
+│   ├── boundaries/
+│   ├── memory/
+│   ├── jit/
+│   ├── intl/
+│   └── runtime/
+├── crashes/
+├── fuzz-data/
+├── v8_fuzzer.py
+├── SPONSORSHIP.md
+└── README.md
+```
+
+The seed corpus is organized by behavior so new target families can be added without mixing ordinary language coverage with crash-regression inputs.
+
+### Crash-oriented seed families
+
+The corpus includes patterns intended to stress:
+
+- out-of-bounds/index boundary handling
+- representation and type transitions
+- object-shape/prototype transitions
+- GC and object lifetime
+- callback re-entry during builtins
+- array length/property invariants
+- TypedArray and ArrayBuffer boundaries
+- strings/RegExp
+- ECMA-402 calendar/Intl paths
+
+These are **stress patterns**, not guaranteed vulnerability triggers. The fuzzer records CHECK/DCHECK/FATAL, sanitizer reports, SIGSEGV, SIGABRT and related failures for subsequent reproduction and root-cause analysis.
+
+## Sponsorship
+
+For sponsorship, hardware support, research collaboration, or project partnerships:
+
+**hunterkritik@gmail.com**
+
+See [SPONSORSHIP.md](SPONSORSHIP.md) for the project support information and disclosure policy.
+
+Fuzzilli's upstream architecture also separates generation/mutation, corpus management, execution, minimization and evaluation; this project follows those broad ideas while remaining an independent lightweight implementation. citeturn0search0turn0search1
