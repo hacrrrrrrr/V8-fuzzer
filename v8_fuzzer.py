@@ -228,7 +228,7 @@ try {{
   for (let round = 0; round < {rounds}; round++) {{
     churn(8 + (round & 7));
     shapeChurn({{}}, 16 + round);
-    target(receiver, trigger);
+    target(receiver, trigger);\n    try { target(date, Math.abs(round) * 86400000); } catch (_) {}
     target(receiver, marker);
     gcBurst();
   }}
