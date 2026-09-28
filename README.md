@@ -266,3 +266,83 @@ V8 security research and browser-engine fuzzing.
 See `LICENSE`.
 
 Copyright 2026 © Kritik Bhattarai.
+
+
+## Fuzzilli-style architecture
+
+The current implementation has been moved from a simple random testcase loop toward a modular fuzzer architecture:
+
+```text
+                    ┌─────────────────────────┐
+                    │       Program Pool      │
+                    │ seeds + persistent      │
+                    │ corpus                  │
+                    └────────────┬────────────┘
+                                 │
+                       choose / generate
+                                 │
+                ┌────────────────▼────────────────┐
+                │        Program Mutator          │
+                │ literal / loop / GC / splice    │
+                └────────────────┬────────────────┘
+                                 │
+                                 ▼
+                    ┌─────────────────────────┐
+                    │    d8 Execution         │
+                    │ fuzzing + GC + natives  │
+                    └────────────┬────────────┘
+                                 │
+                 ┌───────────────┼────────────────┐
+                 │               │                │
+              timeout           crash           normal
+                 │               │                │
+                 ▼               ▼                ▼
+              discard       signature +       corpus
+                             reducer            candidate
+                                 │
+                                 ▼
+                         minimized reproducer
+```
+
+The important difference from the previous version is that generation and mutation are now separate concepts. A generated program becomes a reusable corpus input, and future programs can be produced by mutating or splicing existing programs.
+
+### Components
+
+- **Program generator** — creates structured JavaScript from target families, setup templates, conversion callbacks and boundary values.
+- **Mutator** — applies several small mutations rather than replacing the whole testcase with random text.
+- **Corpus** — persistent, bounded program database stored under `corpus/`.
+- **Executor** — runs each testcase in an isolated `d8` process.
+- **Crash signature** — groups common native failures using diagnostic signatures.
+- **Reducer** — performs a lightweight line-chunk reduction while preserving the crash signature.
+- **Memory scheduler** — limits the number of concurrent d8 processes according to available RAM.
+
+### The path toward real coverage guidance
+
+The architecture is deliberately split so a native V8 coverage provider can be added later:
+
+```text
+                    Program
+                       │
+                       ▼
+                 d8 + coverage
+                       │
+                       ▼
+             edge / feature bitmap
+                       │
+              new feature?
+                 ┌─────┴─────┐
+                no          yes
+                 │            │
+              discard      retain
+                              │
+                              ▼
+                           mutate
+```
+
+At the moment, the repository uses heuristic corpus retention rather than claiming to have Fuzzilli's native coverage feedback. Adding actual V8 edge coverage is the next major step required for a closer functional match.
+
+### Why not claim "same as Fuzzilli"?
+
+Fuzzilli is a mature coverage-guided JavaScript fuzzer with a substantially richer program representation, mutation system, engine integration and feedback infrastructure. This repository now follows similar **architectural ideas** while remaining a small Python/d8 implementation that can operate on a low-memory laptop.
+
+The goal is compatibility of the workflow, not copying Fuzzilli's implementation.
