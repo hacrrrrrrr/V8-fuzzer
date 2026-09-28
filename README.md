@@ -1,92 +1,107 @@
-# V8 Structural Mutation Fuzzer
+# V8 Fuzzer — Lightweight, Fuzzilli-Inspired d8 Fuzzing
 
-**V8 / d8 security-oriented mutation fuzzer** for authorized local testing of V8 builds.
+**A small-footprint V8 JavaScript engine fuzzer for authorized local security research.**
 
-> **Made by Kritik Bhattarai**
+> Built for practical fuzzing on ordinary hardware, including laptops with around **2 GB RAM**.
 
-This project focuses on exercising JavaScript-to-native conversion boundaries where
-user-controlled JavaScript callbacks can execute during coercion, while V8 is under
-GC pressure and JIT optimization.
+This project uses ideas common to modern JavaScript fuzzers: corpus-based generation, mutation, program diversity, crash isolation, and continuous testcase execution. It is **not a reimplementation of Fuzzilli** and currently does not provide engine coverage feedback.
 
-## Features
+## What changed
 
-- Multi-process fuzzing using Python 3 `multiprocessing`
-- One isolated `d8` process per testcase
-- Automatic worker count based on available CPU cores
-- Fresh randomized testcase generation
-- JIT warm-up before conversion triggers
-- Explicit GC and allocation pressure
-- Heap fragmentation patterns using ArrayBuffers and arrays
-- Object-shape and property deletion/addition churn
-- `valueOf()`, `toString()`, and `Symbol.toPrimitive` callouts
-- Array, String, and TypedArray target operations
-- Integer and floating-point boundary values
-- 2.5-second per-process timeout
-- Crash detection using exit status and native diagnostic markers
-- Automatic preservation of reproducing JavaScript cases
-- Captured stdout/stderr stored directly with crash reproducers
-- Standalone seed cases for deterministic starting points
+- RAM-aware worker count; **one worker by default on ~2 GB machines**
+- Small rolling corpus plus mutation of previously generated programs
+- One isolated d8 process per testcase
+- **5-second timeout** by default
+- Requested d8 flags only: `--fuzzing --expose-gc --allow-natives-syntax`
+- Bounded testcase size and bounded corpus
+- Native crash diagnostics saved with reproducing JavaScript
 - No third-party Python dependencies
-
-## Repository Layout
-
-```text
-V8-fuzzer/
-├── v8_fuzzer.py
-├── seeds/
-│   └── conversion_gc_boundary.js
-├── crashes/
-│   └── generated automatically
-├── README.md
-└── LICENSE
-```
-
-## Target Harness
-
-The fuzzer launches:
-
-```text
-./d8 --fuzzing --expose-gc --allow-natives-syntax
-```
-
-The target binary is intentionally configured as:
-
-```python
-D8_PATH = "./d8"
-```
 
 ## Architecture
 
-### 1. Testcase Generation
-
-Every iteration constructs a new JavaScript program from several independently
-randomized dimensions:
-
 ```text
-             ┌─────────────────────┐
-             │ Randomized generator│
-             └──────────┬──────────┘
-                        │
-       ┌────────────────┼────────────────┐
-       ▼                ▼                ▼
-  Target API       Conversion hook    Edge values
-       │                │                │
-       └────────────────┼────────────────┘
-                        ▼
-                GC / heap pressure
-                        │
-                        ▼
-                  JIT warm-up
-                        │
-                        ▼
-                 d8 testcase
+                    ┌──────────────────────┐
+                    │ Seeds + small corpus │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                    ┌──────────────────────┐
+                    │ Generator + mutator  │
+                    └──────────┬───────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              ▼                ▼                ▼
+        JS API targets    coercion hooks     edge values
+        Array/String      valueOf/toString    int/float
+        TypedArrays       Symbol.toPrimitive  boundaries
+              └────────────────┼────────────────┘
+                               ▼
+                    ┌──────────────────────┐
+                    │ JIT + GC + shape     │
+                    │ and allocation churn │
+                    └──────────┬───────────┘
+                               │
+                               ▼
+                 ┌──────────────────────────┐
+                 │ Isolated d8 testcase     │
+                 │ 5 s timeout / process    │
+                 └────────────┬─────────────┘
+                              │
+                    ┌─────────┴─────────┐
+                    ▼                   ▼
+                 timeout              exit
+                    │                   │
+                    ▼                   ▼
+                 discard         crash/diagnostic?
+                                        │
+                                        ▼
+                                crashes/*.js
+                                        │
+                                        ▼
+                              reproduce / reduce
 ```
 
-The generator deliberately combines components rather than relying on random
-JavaScript syntax. This produces syntactically valid programs that repeatedly
-exercise high-value engine boundaries.
+### Memory-aware worker model
 
-### 2. Conversion Boundaries
+```text
+              available RAM
+                   │
+       ┌───────────┼────────────┐
+       ▼           ▼            ▼
+    <= 3 GB     3–6 GB       > 6 GB
+       │           │            │
+       ▼           ▼            ▼
+    1 worker    max 2       bounded CPU
+                              workers
+```
+
+Override it explicitly:
+
+```bash
+V8_FUZZ_WORKERS=1 python3 v8_fuzzer.py
+```
+
+## Fuzzing loop
+
+The lightweight evolutionary loop is:
+
+```text
+seed
+  ↓
+execute
+  ↓
+generate / mutate
+  ↓
+execute
+  ↓
+retain useful program structure
+  ↓
+mutate again
+```
+
+The corpus is intentionally bounded. Without engine coverage instrumentation, retention is heuristic rather than true coverage guidance.
+
+### Conversion and re-entry pressure
 
 Generated objects can implement:
 
@@ -94,31 +109,39 @@ Generated objects can implement:
 - `toString()`
 - `Symbol.toPrimitive`
 
-Those callbacks perform allocations, object-shape mutations, and explicit GC
-before returning a value to the builtin conversion path.
+These callbacks can allocate objects, change shapes, and invoke GC before returning to the builtin path.
 
-This is useful for testing situations where native engine code crosses back
-into JavaScript and execution can trigger allocation or garbage collection.
+```text
+JavaScript builtin
+      │
+      ▼
+  conversion
+      │
+      ▼
+ user callback
+      │
+ ┌────┴───────────────┐
+ │ allocation         │
+ │ shape mutation     │
+ │ garbage collection │
+ └────┬───────────────┘
+      │
+      ▼
+ return to builtin
+      │
+      ▼
+ optimized/native path
+```
 
-### 3. JIT Pressure
+### JIT pressure
 
-The fuzzer warms selected target functions with approximately 2,200 calls before
-introducing the conversion object.
+The default warm-up is **600 iterations**, reduced from the previous 2,200 to make individual testcases cheaper on small-memory systems.
 
-This is intended to increase coverage of optimized execution paths while still
-allowing the same operation to be executed with different argument types.
+```bash
+V8_FUZZ_WARMUP=300 python3 v8_fuzzer.py
+```
 
-### 4. Heap Pressure
-
-The generator creates alternating ArrayBuffers and arrays, releases selected
-references, mutates object properties, and invokes `gc()` where available.
-
-The goal is to exercise object lifetime and representation transitions rather
-than merely maximize allocation volume.
-
-## Current Target Families
-
-The generator currently includes variants around:
+## Current target families
 
 - `Array.prototype.fill`
 - `Array.prototype.lastIndexOf`
@@ -129,127 +152,108 @@ The generator currently includes variants around:
 - `Array.prototype.includes`
 - `Array.prototype.indexOf`
 
-The target list is intentionally easy to extend in `TARGETS`.
-
 ## Running
 
-Place the V8 `d8` binary in the repository root:
-
-```text
-./d8
-```
-
-Then:
+Place the V8 shell at `./d8`, then:
 
 ```bash
 python3 v8_fuzzer.py
 ```
 
-A normal startup looks like:
+Typical 2 GB startup:
 
 ```text
-[+] V8 d8 fuzzer: workers=16, timeout=2.5s
-[+] target: ./d8
+[+] V8 d8 fuzzer: workers=1, timeout=5.0s, RAM~...
+[+] corpus=... target=./d8
 ```
 
-The fuzzer continues until interrupted when:
+Bounded campaign:
 
-```python
-ITERATIONS_PER_WORKER = 0
+```bash
+V8_FUZZ_WORKERS=1 V8_FUZZ_ITERS=1000 python3 v8_fuzzer.py
 ```
 
-is used.
+Replay a saved crash:
 
-For a bounded campaign, set for example:
-
-```python
-ITERATIONS_PER_WORKER = 1000
+```bash
+./d8 --fuzzing --expose-gc --allow-natives-syntax crashes/<file>.js
 ```
 
 ## Configuration
 
-The main configuration is at the top of `v8_fuzzer.py`:
+| Setting | Default | Purpose |
+|---|---:|---|
+| `D8_PATH` | `./d8` | V8 shell path |
+| `V8_FUZZ_WORKERS` | RAM-aware | Worker count |
+| `V8_FUZZ_TIMEOUT` | `5` | Seconds per testcase |
+| `V8_FUZZ_ITERS` | `0` | Cases per worker; 0 = unlimited |
+| `V8_FUZZ_WARMUP` | `600` | JIT warm-up calls |
+| `V8_FUZZ_SEED_DIR` | `seeds` | Initial seeds |
+| `V8_FUZZ_CORPUS_DIR` | `corpus` | Persistent corpus |
+| `V8_FUZZ_CRASH_DIR` | `crashes` | Crash output |
 
-| Setting | Purpose |
-|---|---|
-| `D8_PATH` | Path to the V8 shell |
-| `WORKERS` | Number of independent fuzzing processes |
-| `TIMEOUT_SECONDS` | Maximum execution time per testcase |
-| `ITERATIONS_PER_WORKER` | Number of cases per worker; 0 = unlimited |
-| `WARMUP_ITERS` | JIT warm-up iterations |
-| `CRASH_DIR` | Crash-reproducer directory |
+## Why it fits a 2 GB laptop
 
-## Crash Triage
+The biggest memory cost is V8 itself and the number of d8 processes running simultaneously. The fuzzer therefore uses:
 
-A testcase is recorded when the d8 process reports a crash-like termination
-or diagnostic text associated with native memory-safety failures and fatal
-engine assertions.
+1. One worker by default on roughly 2 GB systems.
+2. One d8 process per testcase.
+3. A bounded corpus instead of an unbounded queue.
+4. 600 warm-up calls by default.
+5. Small allocation pressure.
+6. 48 KiB maximum testcase size.
+7. A 5-second timeout.
 
-Examples of monitored diagnostics include:
+If the laptop begins swapping:
 
-```text
-AddressSanitizer
-heap-use-after-free
-heap-buffer-overflow
-stack-buffer-overflow
-Segmentation fault
-SIGSEGV
-Fatal error
-DCHECK
-CHECK failed
-ASSERT
+```bash
+V8_FUZZ_WORKERS=1 V8_FUZZ_WARMUP=200 V8_FUZZ_TIMEOUT=3 python3 v8_fuzzer.py
 ```
 
-Saved reproducers have the form:
+## Fuzzilli comparison
+
+| Capability | This fuzzer |
+|---|---|
+| Structural JS generation | Yes |
+| Bounded corpus | Yes |
+| Lightweight mutation | Yes |
+| Crash isolation | Yes |
+| Timeout handling | Yes |
+| JIT / GC pressure | Yes |
+| Coverage feedback | **Not yet** |
+| Low-memory mode | Explicit goal |
+
+The next major architectural upgrade is **V8 coverage feedback**, allowing corpus retention to be driven by newly discovered execution edges rather than a heuristic probability.
+
+## Crash triage
+
+The harness watches for common native diagnostics such as AddressSanitizer, heap-use-after-free, heap-buffer-overflow, stack-buffer-overflow, SIGSEGV, SIGABRT, SIGBUS, Fatal error, DCHECK, and CHECK failures.
+
+Saved reproducers use:
 
 ```text
 crashes/crash-<timestamp>-<worker>-<sha256>.js
 ```
 
-The JavaScript testcase is followed by a block comment containing the captured
-stdout/stderr diagnostics.
+The captured stdout/stderr is appended to the reproducer.
 
-This makes each crash artifact directly useful for reproduction and subsequent
-manual reduction.
+A d8 assertion or crash is **not automatically a memory-safety vulnerability**. Reproduce it independently and root-cause it with an appropriate debug or sanitizer build.
 
-## Standalone Seed
-
-A hand-written seed is included at:
+## Repository layout
 
 ```text
-seeds/conversion_gc_boundary.js
+V8-fuzzer/
+├── v8_fuzzer.py
+├── seeds/
+├── corpus/       # generated automatically
+├── crashes/      # generated automatically
+├── README.md
+└── LICENSE
 ```
 
-It exercises a conversion callback while combining:
+## Responsible use
 
-- JIT warm-up
-- object-shape mutation
-- allocation pressure
-- garbage collection
-- `Array.prototype.fill`
-
-It can be executed directly:
-
-```bash
-./d8 --fuzzing --expose-gc --allow-natives-syntax seeds/conversion_gc_boundary.js
-```
-
-## Recommended V8 Builds
-
-For vulnerability triage, use a V8 build appropriate for the bug class being
-investigated. Sanitizer-enabled builds can provide substantially better
-diagnostics for native memory-safety failures.
-
-The fuzzer itself does not require a special Python environment.
-
-## Responsible Use
-
-Run this project only against V8 builds and environments you are authorized to
-test. Do not use it to attack third-party services or systems.
-
-This repository is a research and testing tool. A testcase that triggers an
-assertion is not automatically evidence of a memory-safety vulnerability;
-crashes should be independently reproduced and root-caused.
+Run this project only against V8 builds and environments you are authorized to test. Do not use it to attack third-party services or systems.
 
 ## Author
 
@@ -259,11 +263,6 @@ V8 security research and browser-engine fuzzing.
 
 ## License
 
-This repository is distributed under the license included in
-[`LICENSE`](LICENSE).
+See `LICENSE`.
 
 Copyright 2026 © Kritik Bhattarai.
-
----
-
-**Made by Kritik Bhattarai**
