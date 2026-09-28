@@ -308,7 +308,8 @@ def mutate(source: str, corpus: list[str], rng: random.Random) -> str:
 # ------------------------------ Generation --------------------------------
 
 def generate(rng: random.Random, number: int) -> str:
-    target = rng.choice(TARGETS)\n    special = rng.choice(BUG_CLASS_SEEDS) if rng.random() < 0.30 else ""
+    target = rng.choice(TARGETS)
+    special = rng.choice(BUG_CLASS_SEEDS) if rng.random() < 0.30 else ""
     setup = rng.choice(SETUPS)
     callback = rng.choice(CALLBACKS)
     value = rng.choice(VALUES)
@@ -328,7 +329,9 @@ try {{
   for (let round = 0; round < {rounds}; round++) {{
     churn(8 + (round & 7));
     shapeChurn({{}}, 16 + round);
-    target(receiver, trigger);\n    try { target(date, Math.abs(round) * 86400000); } catch (_) {}
+    target(receiver, trigger);
+    if (special) { try { eval(special); } catch (_) {} }
+    target(receiver, marker);
     target(receiver, marker);
     gcBurst();
   }}
