@@ -231,14 +231,17 @@ def run_case(source: str) -> Tuple[bool, str, int, bool]:
             stderr=subprocess.PIPE,
             text=True,
             errors="replace",
+            start_new_session=True,
         )
         try:
             stdout, stderr = proc.communicate(source, timeout=TIMEOUT_SECONDS)
             timed_out = False
         except subprocess.TimeoutExpired:
             timed_out = True
+            # Kill the entire d8 process group. This is more robust than
+            # proc.kill() if the target ever creates a child process.
             try:
-                proc.kill()
+                os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
             stdout, stderr = proc.communicate()
@@ -271,6 +274,7 @@ def worker(worker_id: int, stop: mp.Event) -> int:
             break
 
         case = make_case(rng, count)
+        print(f"[worker {worker_id}] starting case {count}", flush=True)
         crashed, diagnostics, returncode, timed_out = run_case(case)
         count += 1
 
