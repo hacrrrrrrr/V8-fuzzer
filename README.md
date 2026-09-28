@@ -363,3 +363,21 @@ The generator now includes ECMA-402 date/time paths using the Persian calendar, 
 This is intended to exercise V8's JavaScript-to-ICU/ECMA-402 boundary and date/calendar option handling.
 
 A calendar-related crash is **not automatically a UAF**. The fuzzer records native crash diagnostics; a suspected use-after-free should be confirmed with an ASan/UBSan build and a minimized reproducer. The fuzzer does not assume a vulnerability class from the symptom alone.
+
+
+### Bug-class seed families
+
+The generator now has dedicated seed families for:
+
+| Family | What it stresses |
+|---|---|
+| Bounds / OOB | Array and TypedArray index boundaries |
+| Representation transitions | Number / double / string / object value changes |
+| Shape transitions | Hidden-class/property-layout changes |
+| Lifetime pressure | WeakRef, allocation churn, explicit GC |
+| Callback re-entry | Builtins re-entering JavaScript during coercion |
+| Invariant pressure | Array length/property state transitions |
+| Intl / ICU | Persian, Gregorian, Arabic and Buddhist calendar/numbering paths |
+
+These are **bug-class-oriented fuzzing patterns**, not claims that the resulting testcase is a vulnerability. In particular, CHECK/DCHECK/FATAL/SEGV/ABRT output is collected as a crash signal and must be independently reproduced and root-caused.
+
