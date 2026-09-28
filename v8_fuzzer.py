@@ -17,7 +17,7 @@ from typing import Tuple
 
 D8_PATH = "./d8"
 WORKERS = max(1, os.cpu_count() or 1)
-TIMEOUT_SECONDS = 2.5
+TIMEOUT_SECONDS = 5.0
 ITERATIONS_PER_WORKER = 0
 CRASH_DIR = Path("crashes")
 WARMUP_ITERS = 2200
@@ -275,9 +275,8 @@ def worker(worker_id: int, stop: mp.Event) -> int:
 
         if timed_out:
             timeouts += 1
-            if timeouts <= 3 or timeouts % 100 == 0:
-                print(f"[worker {worker_id}] TIMEOUT #{timeouts} (cases={count})",
-                      flush=True)
+            print(f"[worker {worker_id}] TIMEOUT #{timeouts} cases={count}",
+                  flush=True)
 
         if crashed:
             crashes += 1
@@ -312,6 +311,7 @@ def main() -> int:
 
     print(f"[+] V8 d8 fuzzer: workers={WORKERS}, timeout={TIMEOUT_SECONDS}s", flush=True)
     print(f"[+] target: {D8_PATH}", flush=True)
+    print("[+] progress: each worker reports every completed testcase/timeout", flush=True)
 
     for worker_id in range(WORKERS):
         p = mp.Process(target=worker, args=(worker_id, stop), daemon=False)
