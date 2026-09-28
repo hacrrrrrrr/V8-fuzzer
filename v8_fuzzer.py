@@ -85,6 +85,106 @@ class Fragment:
     weight: int = 1
 
 
+BUG_CLASS_SEEDS = (
+    """function boundsPressure() {
+  const a = new Array(8);
+  for (const i of [-1, 0, 1, 7, 8, 0x7fffffff]) {
+    try { a[i] = i; void a[i]; } catch (_) {}
+  }
+} boundsPressure();""",
+    """function typedBounds() {
+  const u = new Uint32Array(new ArrayBuffer(64));
+  for (const i of [-1, 0, 1, 15, 16, 0x7fffffff]) {
+    try { u[i] = 0x41414141; void u[i]; } catch (_) {}
+  }
+} typedBounds();""",
+    """function representationFlip(x) {
+  const a = [1,2,3,4];
+  for (let i=0;i<200;i++) {
+    a[0] = (i & 1) ? x : i;
+    a[1] = i + 0.5;
+  }
+  return a;
+}
+for (const x of [1, 1.5, "x", {}, null]) {
+  try { representationFlip(x); } catch (_) {}
+}""",
+    """function shapeFlip() {
+  function C() { this.x = 1; }
+  const a = new C(), b = new C();
+  for (let i=0;i<300;i++) {
+    if (i & 1) { a.y = i; delete a.y; }
+    else { b.z = i; delete b.z; }
+    a.x = i; b.x = i;
+  }
+  return a.x + b.x;
+}
+shapeFlip();""",
+    """function lifetimePressure() {
+  let refs = [];
+  for (let i=0;i<128;i++) {
+    let o = {x:i, buf:new ArrayBuffer(256)};
+    refs.push(new WeakRef(o));
+    if ((i & 7) === 0) {
+      o = null;
+      if (typeof gc === "function") gc();
+    }
+  }
+  if (typeof gc === "function") for (let i=0;i<4;i++) gc();
+  return refs.length;
+}
+try { lifetimePressure(); } catch (_) {}""",
+    """function callbackLifetime() {
+  const a = new Array(64).fill(1);
+  const x = { valueOf() {
+    const garbage = [];
+    for (let i=0;i<64;i++) garbage.push({i, b:new ArrayBuffer(128)});
+    if (typeof gc === "function") gc();
+    a.length = (a.length ^ 1) & 63;
+    return 1;
+  }};
+  try { a.fill(7, x, x); } catch (_) {}
+}
+callbackLifetime();""",
+    """function builtinReentry() {
+  const a = [1,2,3,4,5,6];
+  const receiver = {
+    length: 6, 0:1, 1:2, 2:3,
+    get 3() { a.pop(); delete this[2]; return 4; }
+  };
+  try { Array.prototype.join.call(receiver, ","); } catch (_) {}
+}
+builtinReentry();""",
+    """function invariantPressure() {
+  const a = [];
+  for (let i=0;i<256;i++) {
+    a.length = i;
+    if ((i & 3) === 0) a.push(i);
+    if ((i & 7) === 0) a.length = Math.max(0, i >>> 1);
+    Object.defineProperty(a, "x", {value:i, configurable:true, writable:true});
+    delete a.x;
+  }
+}
+try { invariantPressure(); } catch (_) {}""",
+    """const locales = [
+  "fa-IR-u-ca-persian-nu-arabext",
+  "en-US-u-ca-gregory",
+  "ar-EG-u-nu-arab",
+  "th-TH-u-ca-buddhist"
+];
+for (const locale of locales) {
+  try {
+    const f = new Intl.DateTimeFormat(locale, {
+      dateStyle:"full", timeStyle:"long", calendar:"persian"
+    });
+    const d = new Date((Math.random()*2-1)*8.64e15);
+    f.format(d);
+    f.resolvedOptions();
+    f.formatRange(d, new Date(d.getTime()+86400000));
+  } catch (_) {}
+}""",
+)
+
 VALUES = (
     "0", "1", "-1", "2", "0x7fffffff", "0x80000000", "0xffffffff",
     "NaN", "Infinity", "-Infinity", "1.5", "-1.5",
@@ -208,7 +308,7 @@ def mutate(source: str, corpus: list[str], rng: random.Random) -> str:
 # ------------------------------ Generation --------------------------------
 
 def generate(rng: random.Random, number: int) -> str:
-    target = rng.choice(TARGETS)
+    target = rng.choice(TARGETS)\n    special = rng.choice(BUG_CLASS_SEEDS) if rng.random() < 0.30 else ""
     setup = rng.choice(SETUPS)
     callback = rng.choice(CALLBACKS)
     value = rng.choice(VALUES)
