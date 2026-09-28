@@ -315,13 +315,15 @@ def worker(worker_id: int, stop: mp.Event, initial_corpus) -> int:
     seed = (time.time_ns() ^ (os.getpid() << 17) ^
             (worker_id * 0x9E3779B97F4A7C15)) & ((1 << 64) - 1)
     rng = random.Random(seed)
+    corpus = list(initial_corpus)
     count = crashes = timeouts = 0
 
     while not stop.is_set():
         if ITERATIONS_PER_WORKER and count >= ITERATIONS_PER_WORKER:
             break
 
-        base = rng.choice(corpus) if corpus and rng.random() < 0.75 else None\n        case = make_case(rng, count, base)
+        base = rng.choice(corpus) if corpus and rng.random() < 0.75 else None
+        case = make_case(rng, count, base)
         print(f"[worker {worker_id}] starting case {count}", flush=True)
         crashed, diagnostics, returncode, timed_out = run_case(case)
         count += 1
@@ -354,6 +356,7 @@ def main() -> int:
         return 2
 
     CRASH_DIR.mkdir(exist_ok=True)
+    initial_corpus = load_corpus()
     stop = mp.Event()
     processes = []
 
@@ -368,7 +371,8 @@ def main() -> int:
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    print(f"[+] V8 d8 fuzzer: workers={WORKERS}, timeout={TIMEOUT_SECONDS}s, RAM~{available_ram_mb()}MB", flush=True)\n    print(f"[+] corpus={len(initial_corpus)} target={D8_PATH}", flush=True)
+    print(f"[+] V8 d8 fuzzer: workers={WORKERS}, timeout={TIMEOUT_SECONDS}s, RAM~{available_ram_mb()}MB", flush=True)
+    print(f"[+] corpus={len(initial_corpus)} target={D8_PATH}", flush=True)
     print(f"[+] target: {D8_PATH}", flush=True)
     print("[+] progress: each worker reports every completed testcase/timeout", flush=True)
 
