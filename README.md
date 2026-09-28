@@ -46,7 +46,7 @@ V8-fuzzer/
 The fuzzer launches:
 
 ```text
-./d8 --fuzzing --expose-gc --trace-gc --stress-compaction --stress-compaction-random --predictable
+./d8 --fuzzing --expose-gc --allow-natives-syntax
 ```
 
 The target binary is intentionally configured as:
@@ -231,7 +231,7 @@ It exercises a conversion callback while combining:
 It can be executed directly:
 
 ```bash
-./d8 --fuzzing --expose-gc --stress-compaction --stress-compaction-random --predictable seeds/conversion_gc_boundary.js
+./d8 --fuzzing --expose-gc --allow-natives-syntax seeds/conversion_gc_boundary.js
 ```
 
 ## Recommended V8 Builds
