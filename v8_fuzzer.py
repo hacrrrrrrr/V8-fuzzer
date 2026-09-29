@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# V8-Fuzzer v2.1.0\n# Improvement tracking: https://github.com/hacrrrrrrr/V8-fuzzer/issues/1\n# This release is maintained as the implementation work for Issue #1.\n#!/usr/bin/env python3
 """
 V8-Fuzzer: lightweight Fuzzilli-style JavaScript fuzzing framework.
 
@@ -30,7 +30,8 @@ from typing import Iterable
 
 # ----------------------------- Configuration -----------------------------
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
+ISSUE_URL = "https://github.com/hacrrrrrrr/V8-fuzzer/issues/1"
 D8_PATH = os.environ.get("D8_PATH", "./d8")
 TIMEOUT = float(os.environ.get("V8_FUZZ_TIMEOUT", "5"))
 MAX_PROGRAM = int(os.environ.get("V8_FUZZ_MAX_PROGRAM", str(48 * 1024)))
@@ -41,6 +42,8 @@ SEED_DIR = Path(os.environ.get("V8_FUZZ_SEEDS", "seeds"))
 CORPUS_DIR = Path(os.environ.get("V8_FUZZ_CORPUS", "corpus"))
 CRASH_DIR = Path(os.environ.get("V8_FUZZ_CRASHES", "crashes"))
 META_DIR = Path(os.environ.get("V8_FUZZ_META", "fuzz-data"))
+MINIMIZE = os.environ.get("V8_FUZZ_MINIMIZE", "1").lower() not in {"0", "false", "no"}
+MINIMIZE_BUDGET = max(1, int(os.environ.get("V8_FUZZ_MINIMIZE_BUDGET", "40")))
 
 D8_FLAGS = ("--fuzzing", "--expose-gc", "--allow-natives-syntax")
 
@@ -586,7 +589,15 @@ def save_crash(source: str, result: Result, worker: int, minimized: bool = False
 # ------------------------------- Worker -----------------------------------
 
 def worker(worker_id: int, stop: mp.Event) -> None:
-    seed = (time.time_ns() ^ (os.getpid() << 16) ^ worker_id) & ((1 << 64) - 1)
+    base_seed = os.environ.get("V8_FUZZ_SEED")
+    if base_seed is not None:
+        try:
+            seed = int(base_seed, 0) ^ (worker_id * 0x9E3779B97F4A7C15)
+        except ValueError:
+            seed = hash(base_seed) ^ worker_id
+    else:
+        seed = time.time_ns() ^ (os.getpid() << 16) ^ worker_id
+    seed &= (1 << 64) - 1
     rng = random.Random(seed)
     corpus = Corpus(rng)
     crashes = 0
@@ -616,11 +627,12 @@ def worker(worker_id: int, stop: mp.Event) -> None:
                 r = execute(candidate)
                 return r.crashed and r.signature == result.signature
 
-            minimized = minimize(source, same_crash)
             save_crash(source, result, worker_id)
-            if minimized != source:
-                min_result = execute(minimized)
-                save_crash(minimized, min_result, worker_id, minimized=True)
+            if MINIMIZE:
+                minimized = minimize(source, same_crash, budget=MINIMIZE_BUDGET)
+                if minimized != source:
+                    min_result = execute(minimized)
+                    save_crash(minimized, min_result, worker_id, minimized=True)
             print(
                 f"[worker {worker_id}] CRASH #{crashes} "
                 f"signature={result.signature} corpus={len(corpus)}",
@@ -678,6 +690,10 @@ def main() -> int:
         flush=True,
     )
     print("[+] architecture: generate -> mutate -> execute -> triage -> corpus", flush=True)
+    print("[+] tracking issue: " + ISSUE_URL, flush=True)
+    print(f"[+] minimize_crashes={MINIMIZE} budget={MINIMIZE_BUDGET}", flush=True)
+    if os.environ.get("V8_FUZZ_SEED") is not None:
+        print("[+] deterministic seed mode enabled", flush=True)
     print("[+] d8: " + resolved_d8, flush=True)
     print("[+] d8 flags: " + " ".join(D8_FLAGS), flush=True)
 
