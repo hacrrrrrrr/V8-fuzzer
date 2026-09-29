@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.2.0 — Modular fuzzing framework — 2026-09-29
+
+- Added a reusable MutationEngine for boundary mutation, statement duplication, and corpus splicing.
+- Added a standalone d8 Script Runner and `run_corpus.py` for seed/corpus replay.
+- Added Evaluator support for portable interestingness and optional coverage input.
+- Added a reusable Minimizer component for budgeted reduction.
+- Added a Lifter abstraction for translating program fragments to JavaScript.
+- Added content-addressed Storage for corpus and diagnostic artifacts.
+- Added Statistics counters for executions, timeouts, crashes, interesting samples, minimizations, and throughput.
+- Added ThreadSync and opt-in NetworkSync components.
+- Added modular architecture documentation.
+
+
+
 ## v2.1.0 — Issue #1 improvement release — 2026-09-29
 
 - Added explicit `Issue #1` tracking in the fuzzer and release documentation.
