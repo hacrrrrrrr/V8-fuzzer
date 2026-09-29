@@ -1,0 +1,38 @@
+# Changelog
+
+## v2.0.0 — 2026-09-28
+
+### Cross-platform release
+
+- Added explicit project versioning.
+- Added platform detection for Linux, macOS, and Windows.
+- Added Windows available-RAM detection through the standard Windows API.
+- Added macOS RAM fallback using `sysctl`.
+- Added Windows process-tree termination using `taskkill /T /F`.
+- Kept POSIX process-group termination for Linux/macOS.
+- Added Windows `d8.exe` resolution while retaining the configured default `./d8`.
+- Added platform and architecture information to startup diagnostics.
+- Preserved the requested d8 flags:
+  - `--fuzzing`
+  - `--expose-gc`
+  - `--allow-natives-syntax`
+- Preserved the 5-second testcase timeout.
+- Kept worker count configurable through `V8_FUZZ_WORKERS`.
+- Kept the implementation dependency-free.
+
+### Compatibility
+
+The Python harness is intended to run on common Python 3 environments on:
+
+- Linux x86_64 / ARM64
+- macOS x86_64 / Apple Silicon
+- Windows x86_64 / ARM64
+
+The availability of `d8` itself depends on the V8 build you provide for the
+target operating system and architecture.
+
+### Important
+
+“Cross-platform” refers to the Python harness and process-management layer.
+It does not mean one `d8` binary runs unchanged on every CPU or operating
+system.
