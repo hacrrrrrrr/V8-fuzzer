@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import multiprocessing as mp
+import platform
 import os
 import random
 import re
@@ -29,6 +30,7 @@ from typing import Iterable
 
 # ----------------------------- Configuration -----------------------------
 
+VERSION = "2.0.0"
 D8_PATH = os.environ.get("D8_PATH", "./d8")
 TIMEOUT = float(os.environ.get("V8_FUZZ_TIMEOUT", "5"))
 MAX_PROGRAM = int(os.environ.get("V8_FUZZ_MAX_PROGRAM", str(48 * 1024)))
@@ -54,12 +56,53 @@ CRASH_WORDS = (
 # ------------------------------ Memory model ------------------------------
 
 def available_ram_mb() -> int:
-    try:
-        for line in Path("/proc/meminfo").read_text().splitlines():
-            if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) // 1024
-    except (OSError, ValueError):
-        pass
+    """Best-effort physical/available RAM detection without third-party modules."""
+    system = platform.system()
+
+    if system == "Linux":
+        try:
+            for line in Path("/proc/meminfo").read_text().splitlines():
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) // 1024
+        except (OSError, ValueError):
+            pass
+
+    if system == "Windows":
+        try:
+            import ctypes
+
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("sullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            status = MEMORYSTATUSEX()
+            status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                return max(512, status.ullAvailPhys // (1024 * 1024))
+        except (AttributeError, OSError, TypeError):
+            pass
+
+    if system == "Darwin":
+        try:
+            total = int(subprocess.check_output(
+                ["sysctl", "-n", "hw.memsize"], text=True
+            ).strip())
+            # macOS does not expose a simple portable MemAvailable equivalent;
+            # use a conservative fraction of physical memory.
+            return max(512, (total // (1024 * 1024)) // 2)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+
+    # Safe fallback for other Unix-like systems and unusual environments.
     return 2048
 
 
@@ -74,6 +117,44 @@ def worker_count() -> int:
     if ram <= 6144:
         return min(2, cpu)
     return min(4, max(1, cpu // 2))
+
+
+def terminate_process_tree(process: subprocess.Popen) -> None:
+    """Kill a d8 process and any descendants on POSIX and Windows."""
+    if process.poll() is not None:
+        return
+
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=2,
+            )
+        except (OSError, subprocess.SubprocessError):
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def popen_kwargs() -> dict:
+    """Return platform-specific process-isolation settings."""
+    if os.name == "nt":
+        return {
+            "creationflags": getattr(
+                subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+            )
+        }
+    return {"start_new_session": True}
 
 
 # ------------------------------- Program IR -------------------------------
@@ -375,17 +456,14 @@ def execute(source: str) -> Result:
             stderr=subprocess.PIPE,
             text=True,
             errors="replace",
-            start_new_session=True,
+            **popen_kwargs(),
         )
         try:
             out, err = p.communicate(source, timeout=TIMEOUT)
             timed_out = False
         except subprocess.TimeoutExpired:
             timed_out = True
-            try:
-                os.killpg(p.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+            terminate_process_tree(p)
             out, err = p.communicate()
 
         output = "=== STDOUT ===\n" + out + "\n=== STDERR ===\n" + err
@@ -578,8 +656,10 @@ def main() -> int:
     signal.signal(signal.SIGTERM, shutdown)
 
     print(
-        f"[+] V8-Fuzzer workers={workers} RAM~{available_ram_mb()}MB "
-        f"timeout={TIMEOUT}s corpus_limit={MAX_CORPUS}",
+        f"[+] V8-Fuzzer v{VERSION} platform={platform.system()} "
+        f"arch={platform.machine()} workers={workers} "
+        f"RAM~{available_ram_mb()}MB timeout={TIMEOUT}s "
+        f"corpus_limit={MAX_CORPUS}",
         flush=True,
     )
     print("[+] architecture: generate -> mutate -> execute -> triage -> corpus", flush=True)
