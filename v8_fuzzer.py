@@ -119,6 +119,18 @@ def worker_count() -> int:
     return min(4, max(1, cpu // 2))
 
 
+def resolve_d8_path() -> str:
+    """Resolve the configured d8 path, including Windows d8.exe."""
+    configured = Path(D8_PATH)
+    if configured.is_file():
+        return str(configured)
+    if os.name == "nt" and D8_PATH == "./d8":
+        windows_d8 = Path("./d8.exe")
+        if windows_d8.is_file():
+            return str(windows_d8)
+    return D8_PATH
+
+
 def terminate_process_tree(process: subprocess.Popen) -> None:
     """Kill a d8 process and any descendants on POSIX and Windows."""
     if process.poll() is not None:
@@ -450,7 +462,7 @@ def crash_signature(output: str, returncode: int) -> str:
 def execute(source: str) -> Result:
     try:
         p = subprocess.Popen(
-            (D8_PATH, *D8_FLAGS, "-"),
+            (resolve_d8_path(), *D8_FLAGS, "-"),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -633,8 +645,11 @@ def worker(worker_id: int, stop: mp.Event) -> None:
 # -------------------------------- Main -------------------------------------
 
 def main() -> int:
-    if not Path(D8_PATH).is_file():
+    resolved_d8 = resolve_d8_path()
+    if not Path(resolved_d8).is_file():
         print(f"error: d8 not found: {D8_PATH}", file=sys.stderr)
+        print("hint: on Windows, place d8.exe in the working directory or set D8_PATH.",
+              file=sys.stderr)
         return 2
 
     for directory in (CORPUS_DIR, CRASH_DIR, META_DIR):
@@ -663,6 +678,7 @@ def main() -> int:
         flush=True,
     )
     print("[+] architecture: generate -> mutate -> execute -> triage -> corpus", flush=True)
+    print("[+] d8: " + resolved_d8, flush=True)
     print("[+] d8 flags: " + " ".join(D8_FLAGS), flush=True)
 
     for worker_id in range(workers):
