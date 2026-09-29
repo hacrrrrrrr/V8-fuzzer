@@ -1,4 +1,4 @@
-# V8-Fuzzer v2.1.0\n# Improvement tracking: https://github.com/hacrrrrrrr/V8-fuzzer/issues/1\n# This release is maintained as the implementation work for Issue #1.\n#!/usr/bin/env python3
+# V8-Fuzzer v2.2.0\n# Improvement tracking: https://github.com/hacrrrrrrr/V8-fuzzer/issues/1\n# This release is maintained as the implementation work for Issue #1.\n#!/usr/bin/env python3
 """
 V8-Fuzzer: lightweight Fuzzilli-style JavaScript fuzzing framework.
 
@@ -30,7 +30,7 @@ from typing import Iterable
 
 # ----------------------------- Configuration -----------------------------
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 ISSUE_URL = "https://github.com/hacrrrrrrr/V8-fuzzer/issues/1"
 D8_PATH = os.environ.get("D8_PATH", "./d8")
 TIMEOUT = float(os.environ.get("V8_FUZZ_TIMEOUT", "5"))
@@ -689,7 +689,8 @@ def main() -> int:
         f"corpus_limit={MAX_CORPUS}",
         flush=True,
     )
-    print("[+] architecture: generate -> mutate -> execute -> triage -> corpus", flush=True)
+    print("[+] architecture: generate -> mutate -> execute -> evaluate -> corpus -> minimize", flush=True)
+    print("[+] modules: MutationEngine, Evaluator, Minimizer, Lifter, Storage, Statistics, ThreadSync, NetworkSync", flush=True)
     print("[+] tracking issue: " + ISSUE_URL, flush=True)
     print(f"[+] minimize_crashes={MINIMIZE} budget={MINIMIZE_BUDGET}", flush=True)
     if os.environ.get("V8_FUZZ_SEED") is not None:

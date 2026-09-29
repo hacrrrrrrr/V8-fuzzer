@@ -1,7 +1,7 @@
 > **Sponsorship / Research Support:** **hunterkritik@gmail.com**  
 > Hardware, fuzzing infrastructure, research collaboration, and project sponsorship inquiries are welcome.
 
-# V8 Fuzzer v2.0.0 — Lightweight, Fuzzilli-Inspired d8 Fuzzing
+# V8 Fuzzer v2.2.0 — Lightweight, Fuzzilli-Inspired d8 Fuzzing
 
 **A small-footprint V8 JavaScript engine fuzzer for authorized local security research.**
 
@@ -290,167 +290,33 @@ See `LICENSE`.
 Copyright 2026 © Kritik Bhattarai.
 
 
-## Fuzzilli-style architecture
+## v2.2.0 — Modular fuzzing framework
 
-The current implementation has been moved from a simple random testcase loop toward a modular fuzzer architecture:
+This release adds reusable components modeled around a modern fuzzing pipeline:
 
-```text
-                    ┌─────────────────────────┐
-                    │       Program Pool      │
-                    │ seeds + persistent      │
-                    │ corpus                  │
-                    └────────────┬────────────┘
-                                 │
-                       choose / generate
-                                 │
-                ┌────────────────▼────────────────┐
-                │        Program Mutator          │
-                │ literal / loop / GC / splice    │
-                └────────────────┬────────────────┘
-                                 │
-                                 ▼
-                    ┌─────────────────────────┐
-                    │    d8 Execution         │
-                    │ fuzzing + GC + natives  │
-                    └────────────┬────────────┘
-                                 │
-                 ┌───────────────┼────────────────┐
-                 │               │                │
-              timeout           crash           normal
-                 │               │                │
-                 ▼               ▼                ▼
-              discard       signature +       corpus
-                             reducer            candidate
-                                 │
-                                 ▼
-                         minimized reproducer
-```
+- MutationEngine — structural mutations, boundary-value mutations, statement duplication, and corpus splicing.
+- Script Runner — portable isolated d8 execution with the existing 5-second timeout.
+- Corpus — persistent, bounded, content-addressed program storage.
+- Minimizer — budgeted reduction that can preserve a crash/assertion predicate.
+- Evaluator — portable interestingness evaluation with an optional coverage-input interface.
+- Lifter — converts the small internal Program representation to JavaScript.
+- Statistics — execution, timeout, crash, interestingness, minimization, and throughput counters.
+- ThreadSync — process-local duplicate coordination.
+- NetworkSync — optional explicit peer-to-peer corpus transfer; disabled unless used by a caller.
+- Corpus runner — replay seeds/corpus without starting the full mutation campaign.
 
-The important difference from the previous version is that generation and mutation are now separate concepts. A generated program becomes a reusable corpus input, and future programs can be produced by mutating or splicing existing programs.
+Replay a corpus directory:
 
-### Components
+    python3 run_corpus.py seeds
+    python3 run_corpus.py corpus
 
-- **Program generator** — creates structured JavaScript from target families, setup templates, conversion callbacks and boundary values.
-- **Mutator** — applies several small mutations rather than replacing the whole testcase with random text.
-- **Corpus** — persistent, bounded program database stored under `corpus/`.
-- **Executor** — runs each testcase in an isolated `d8` process.
-- **Crash signature** — groups common native failures using diagnostic signatures.
-- **Reducer** — performs a lightweight line-chunk reduction while preserving the crash signature.
-- **Memory scheduler** — limits the number of concurrent d8 processes according to available RAM.
+Architecture details are documented in docs/ARCHITECTURE.md.
 
-### The path toward real coverage guidance
+v2.2.0 follows the broad separation of mutation, execution, evaluation,
+storage, synchronization, and minimization used by mature JavaScript fuzzers.
+It remains an independent Python implementation and does not copy Fuzzilli
+source code.
 
-The architecture is deliberately split so a native V8 coverage provider can be added later:
+v8_fuzzer.py remains the primary all-in-one entry point. The new modules are
+also usable independently for experiments and future coverage-provider work.
 
-```text
-                    Program
-                       │
-                       ▼
-                 d8 + coverage
-                       │
-                       ▼
-             edge / feature bitmap
-                       │
-              new feature?
-                 ┌─────┴─────┐
-                no          yes
-                 │            │
-              discard      retain
-                              │
-                              ▼
-                           mutate
-```
-
-At the moment, the repository uses heuristic corpus retention rather than claiming to have Fuzzilli's native coverage feedback. Adding actual V8 edge coverage is the next major step required for a closer functional match.
-
-### Why not claim "same as Fuzzilli"?
-
-Fuzzilli is a mature coverage-guided JavaScript fuzzer with a substantially richer program representation, mutation system, engine integration and feedback infrastructure. This repository now follows similar **architectural ideas** while remaining a small Python/d8 implementation that can operate on a low-memory laptop.
-
-The goal is compatibility of the workflow, not copying Fuzzilli's implementation.
-
-
-## Intl / Persian-calendar fuzzing
-
-The generator now includes ECMA-402 date/time paths using the Persian calendar, including:
-
-- `fa-IR-u-ca-persian`
-- `calendar: "persian"`
-- `numberingSystem: "arabext"`
-- `Intl.DateTimeFormat.prototype.format`
-- `formatRange`
-- `resolvedOptions()`
-- date values spanning epoch, negative timestamps, large timestamps, and year-2038-adjacent values
-
-This is intended to exercise V8's JavaScript-to-ICU/ECMA-402 boundary and date/calendar option handling.
-
-A calendar-related crash is **not automatically a UAF**. The fuzzer records native crash diagnostics; a suspected use-after-free should be confirmed with an ASan/UBSan build and a minimized reproducer. The fuzzer does not assume a vulnerability class from the symptom alone.
-
-
-### Bug-class seed families
-
-The generator now has dedicated seed families for:
-
-| Family | What it stresses |
-|---|---|
-| Bounds / OOB | Array and TypedArray index boundaries |
-| Representation transitions | Number / double / string / object value changes |
-| Shape transitions | Hidden-class/property-layout changes |
-| Lifetime pressure | WeakRef, allocation churn, explicit GC |
-| Callback re-entry | Builtins re-entering JavaScript during coercion |
-| Invariant pressure | Array length/property state transitions |
-| Intl / ICU | Persian, Gregorian, Arabic and Buddhist calendar/numbering paths |
-
-These are **bug-class-oriented fuzzing patterns**, not claims that the resulting testcase is a vulnerability. In particular, CHECK/DCHECK/FATAL/SEGV/ABRT output is collected as a crash signal and must be independently reproduced and root-caused.
-
-
-
-## Professional project structure
-
-```text
-V8-fuzzer/
-├── docs/
-│   ├── ARCHITECTURE.md
-│   └── CRASH_TRIAGE.md
-├── corpus/
-│   └── README.md
-├── seeds/
-│   ├── boundaries/
-│   ├── memory/
-│   ├── jit/
-│   ├── intl/
-│   └── runtime/
-├── crashes/
-├── fuzz-data/
-├── v8_fuzzer.py
-├── SPONSORSHIP.md
-└── README.md
-```
-
-The seed corpus is organized by behavior so new target families can be added without mixing ordinary language coverage with crash-regression inputs.
-
-### Crash-oriented seed families
-
-The corpus includes patterns intended to stress:
-
-- out-of-bounds/index boundary handling
-- representation and type transitions
-- object-shape/prototype transitions
-- GC and object lifetime
-- callback re-entry during builtins
-- array length/property invariants
-- TypedArray and ArrayBuffer boundaries
-- strings/RegExp
-- ECMA-402 calendar/Intl paths
-
-These are **stress patterns**, not guaranteed vulnerability triggers. The fuzzer records CHECK/DCHECK/FATAL, sanitizer reports, SIGSEGV, SIGABRT and related failures for subsequent reproduction and root-cause analysis.
-
-## Sponsorship
-
-For sponsorship, hardware support, research collaboration, or project partnerships:
-
-**hunterkritik@gmail.com**
-
-See [SPONSORSHIP.md](SPONSORSHIP.md) for the project support information and disclosure policy.
-
-Fuzzilli's upstream architecture also separates generation/mutation, corpus management, execution, minimization and evaluation; this project follows those broad ideas while remaining an independent lightweight implementation. citeturn0search0turn0search1
