@@ -1,3 +1,10 @@
+## v2.3.0 — Feedback and triage helpers — 2026-09-29
+
+- Added `v8fuzzer.advanced_feedback.FeatureFeedback` for deterministic heuristic corpus retention based on stress-feature combinations.
+- Added `CrashDeduplicator` for atomic cross-worker crash-signature claiming.
+- Added `TimeoutStore` for bounded persistence of hangs/timeouts instead of silently discarding them.
+- Kept the helpers dependency-free and usable by the existing all-in-one fuzzer or modular runner.
+
 # Changelog
 
 ## v2.2.0 — Modular fuzzing framework — 2026-09-29
