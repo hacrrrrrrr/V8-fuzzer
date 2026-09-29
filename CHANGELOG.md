@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.1.0 — Issue #1 improvement release — 2026-09-29
+
+- Added explicit `Issue #1` tracking in the fuzzer and release documentation.
+- Added reproducible campaign seeds through `V8_FUZZ_SEED`.
+- Added configurable crash minimization through `V8_FUZZ_MINIMIZE`.
+- Added configurable minimization budget through `V8_FUZZ_MINIMIZE_BUDGET`.
+- Keeps the original crash artifact even when minimization is enabled.
+- Reports the tracked issue and minimization configuration at startup.
+
+
+
 ## v2.0.0 — 2026-09-28
 
 ### Cross-platform release
